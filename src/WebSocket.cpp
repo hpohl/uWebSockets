@@ -72,6 +72,28 @@ typename WebSocket<isServer>::PreparedMessage *WebSocket<isServer>::prepareMessa
 }
 
 template <bool isServer>
+typename WebSocket<isServer>::PreparedMessage *WebSocket<isServer>::prepareMessageBatch(std::vector<std::string> &messages, std::vector<int> &excludedMessages, OpCode opCode, bool compressed, void (*callback)(void *, void *, bool, void *))
+{
+    // should be sent in!
+    size_t batchLength = 0;
+    for (size_t i = 0; i < messages.size(); i++) {
+        batchLength += messages[i].length();
+    }
+
+    PreparedMessage *preparedMessage = new PreparedMessage;
+    preparedMessage->buffer = new char[batchLength + 10 * messages.size()];
+
+    int offset = 0;
+    for (size_t i = 0; i < messages.size(); i++) {
+        offset += WebSocketProtocol<isServer>::formatMessage(preparedMessage->buffer + offset, messages[i].data(), messages[i].length(), opCode, messages[i].length(), compressed);
+    }
+    preparedMessage->length = offset;
+    preparedMessage->references = 1;
+    preparedMessage->callback = callback;
+    return preparedMessage;
+}
+
+template <bool isServer>
 void WebSocket<isServer>::sendPrepared(typename WebSocket<isServer>::PreparedMessage *preparedMessage, void *callbackData) {
     preparedMessage->references++;
     void (*callback)(void *webSocket, void *userData, bool cancelled, void *reserved) = [](void *webSocket, void *userData, bool cancelled, void *reserved) {
@@ -142,11 +164,11 @@ void WebSocket<isServer>::terminate() {
 }
 
 template <bool isServer>
-void WebSocket<isServer>::close(int code, char *message, size_t length) {
+void WebSocket<isServer>::close(int code, const char *message, size_t length) {
     static const int MAX_CLOSE_PAYLOAD = 123;
     length = std::min<size_t>(MAX_CLOSE_PAYLOAD, length);
     ((Group<isServer> *) getSocketData()->nodeData)->removeWebSocket(*this);
-    ((Group<isServer> *) getSocketData()->nodeData)->disconnectionHandler(*this, code, message, length);
+    ((Group<isServer> *) getSocketData()->nodeData)->disconnectionHandler(*this, code, (char *) message, length);
     getSocketData()->shuttingDown = true;
     startTimeout<WebSocket<isServer>::onEnd>();
 

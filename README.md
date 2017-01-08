@@ -1,14 +1,17 @@
 <div align="center"><img src="images/logo.png"/></div>
 `µWS` is one of the most lightweight, efficient & scalable WebSocket server implementations available. It features an easy-to-use, fully async object-oriented interface and scales to millions of connections using only a fraction of memory compared to the competition. While performance and scalability are two of our top priorities, we consider security, stability and standards compliance paramount. License is zlib/libpng (very permissive & suits commercial applications).
 
+*Note: master is a WIP currently, always use a released version in production. I'm working on a new release with HTTP support but will need some time (latest release is WebSocket only)*
+
 * Autobahn tests [all pass](http://htmlpreview.github.io/?https://github.com/uWebSockets/uWebSockets/blob/master/autobahn/index.html).
-* Significantly outperforms `WebSocket++`, `libwebsockets`, `Beast`, `Crow`, `Kaazing Gateway`, `ws` and `Socket.IO` in every tested dimension (see benchmark table below).
+* Significantly outperforms `WebSocket++`, `libwebsockets`, `Beast`, `Crow`, `Gorilla`, `Kaazing Gateway`, `ws` and `Socket.IO` in every tested dimension (see benchmark table below).
+* Outperforms Node.js itself by 5x in HTTP requests/second when run as a Node.js module.
 * Linux, OS X & Windows support.
 * Valgrind / AddressSanitizer clean.
 * Built-in load balancing and multi-core scalability.
 * SSL/TLS support & integrates with foreign HTTPS servers.
 * Permessage-deflate built-in.
-* Node.js binding exposed as the well-known `ws` interface (`uws` is at least 10x faster).
+* Node.js binding exposed as the well-known `ws` interface (`uws` is at least 20x faster and 20x more scalable).
 
 [![npm version](https://badge.fury.io/js/uws.svg)](https://badge.fury.io/js/uws) [![](https://api.travis-ci.org/uWebSockets/uWebSockets.svg?branch=master)](https://travis-ci.org/uWebSockets/uWebSockets) [![](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/uWebSockets/uWebSockets)
 
@@ -18,12 +21,25 @@ Implementation | User space memory scaling | Connection performance | Short mess
 Beast 1.0.0 b17 | µWS is **7x** as lightweight :+1: | µWS is **4x** as performant | µWS is **22x** as performant | µWS is **3x** as performant
 libwebsockets 2.0 | µWS is **11x** as lightweight | µWS is **equal** in performance :+1: | µWS is **6x** as performant | µWS is **4x** as performant
 Crow [Sep 21] | µWS is **13x** as lightweight | µWS is **2x** as performant | µWS is **12x** as performant | unable to measure
+Gorilla e8f0f8a | µWS is **46x** as lightweight | µWS is **3x** as performant | µWS is **5x** as performant :open_mouth: | data missing
 ws v1.1.0 + binary addons | µWS is **47x** as lightweight | µWS is **18x** as performant | µWS is **33x** as performant | µWS is **2x** as performant
 Kaazing Gateway Community 5.0.0 | µWS is **62x** as lightweight | µWS is **15x** as performant | µWS is **18x** as performant | unable to measure
 Socket.IO 1.5.1 | µWS is **62x** as lightweight | µWS is **42x** as performant :-1: | µWS is **61x** as performant :-1: | data missing
 WebSocket++ v0.7.0 | µWS is **63x** as lightweight :-1: | µWS is **4x** as performant | µWS is **3x** as performant :+1: | µWS is **2x** as performant :+1:
 
 *Benchmarks are run with default settings in all libraries, except for `ws` which is run with the native performance addons. These results were achieved with the native C++ server, not the Node.js addon. Expect worse performance and scalability when using Node.js (don't worry, the Node.js addon will run circles around `ws`).*
+
+### HTTP benchmarks
+Implementation | Requests per second
+--- | ---
+Node.js (ExpressJS) | 10k
+Node.js (vanilla) | 30k
+Node.js (µWS) | 150 - 200k
+NGINX | 70k
+µWS | 250k
+h2o | probably a bit faster than µWS
+
+*Experimental HTTP 1.1 benchmark using wrk. All servers are single threaded and serve a static page with no PHP, database queries or similar. µWS has experimental HTTP support in master but not in the latest release.*
 
 ## Built with µWS
 <div align="center"><img src="images/builtwithuws.png"/></div>
@@ -54,13 +70,14 @@ We built `µWS` with the existing Node.js infrastructure in mind. That's why we 
 
 ```javascript
 var WebSocketServer = require('uws').Server;
-var wss = new WebSocketServer({ port: 8080 });
+var wss = new WebSocketServer({ port: 3000 });
 
-wss.on('connection', function (ws) {
-    ws.on('message', function (message) {
-        console.log('received: ' + message);
-    });
+function onMessage(message) {
+    console.log('received: ' + message);
+}
 
+wss.on('connection', function(ws) {
+    ws.on('message', onMessage);
     ws.send('something');
 });
 ```

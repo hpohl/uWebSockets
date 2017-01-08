@@ -7,6 +7,12 @@ function noop() {}
 function abortConnection(socket, code, name) {
     socket.end('HTTP/1.1 ' + code + ' ' + name + '\r\n\r\n');
 }
+function emitConnection(ws) {
+    this.emit('connection', ws);
+}
+function onServerMessage(message, webSocket) {
+    webSocket.internalOnMessage(message);
+}
 const native = (() => {
     try {
         try {
@@ -27,6 +33,8 @@ const native = (() => {
         }
     }
 })();
+
+native.setNoop(noop);
 
 var _upgradeReq = null;
 const clientGroup = native.client.group.create();
@@ -85,6 +93,14 @@ class WebSocket {
         }
     }
 
+    set onopen(f) {
+        if (f) {
+            this.internalOnOpen = f;
+        } else {
+            this.internalOnOpen = noop;
+        }
+    }   
+
     set onclose(f) {
         if (f) {
             this.internalOnClose = (code, message) => {
@@ -92,6 +108,14 @@ class WebSocket {
             };
         } else {
             this.internalOnClose = noop;
+        }
+    }
+
+    set onerror(f) {
+        if (f && this instanceof WebSocketClient) {
+            this.internalOnError = f;
+        } else {
+            this.internalOnError = noop;
         }
     }
 
@@ -314,6 +338,18 @@ class WebSocketClient extends WebSocket {
     }
 }
 
+class HttpSocket {
+    constructor(external) {
+        this.external = external;
+    }
+
+    end(data) {
+        if (this.external) {
+            native.server.respond(this.external, data);
+        }
+    }
+}
+
 class Server extends EventEmitter {
     constructor(options, callback) {
         super();
@@ -334,7 +370,7 @@ class Server extends EventEmitter {
         this._lastUpgradeListener = true;
         this._passedHttpServer = options.server;
 
-        if (!options.noServer) {
+        if (!options.noServer && !options.nativeHttp) {
             this.httpServer = options.server ? options.server : http.createServer((request, response) => {
                 // todo: default HTTP response
                 response.end();
@@ -356,26 +392,20 @@ class Server extends EventEmitter {
                         if (options.verifyClient.length === 2) {
                             options.verifyClient(info, (result, code, name) => {
                                 if (result) {
-                                    this.handleUpgrade(request, socket, head, (ws) => {
-                                        this.emit('connection', ws);
-                                    });
+                                    this.handleUpgrade(request, socket, head, emitConnection);
                                 } else {
                                     abortConnection(socket, code, name);
                                 }
                             });
                         } else {
                             if (options.verifyClient(info)) {
-                                this.handleUpgrade(request, socket, head, (ws) => {
-                                    this.emit('connection', ws);
-                                });
+                                this.handleUpgrade(request, socket, head, emitConnection);
                             } else {
                                 abortConnection(socket, 400, 'Client verification failed');
                             }
                         }
                     } else {
-                        this.handleUpgrade(request, socket, head, (ws) => {
-                            this.emit('connection', ws);
-                        });
+                        this.handleUpgrade(request, socket, head, emitConnection);
                     }
                 } else {
                     if (this._lastUpgradeListener) {
@@ -399,9 +429,7 @@ class Server extends EventEmitter {
             native.clearUserData(external);
         });
 
-        native.server.group.onMessage(this.serverGroup, (message, webSocket) => {
-            webSocket.internalOnMessage(message);
-        });
+        native.server.group.onMessage(this.serverGroup, onServerMessage);
 
         native.server.group.onPing(this.serverGroup, (message, webSocket) => {
             webSocket.onping(message);
@@ -419,12 +447,24 @@ class Server extends EventEmitter {
         });
 
         if (options.port) {
-            if (options.host) {
-                this.httpServer.listen(options.port, options.host, callback);
+            if (options.nativeHttp) {
+                this._upgradeCallback = emitConnection;
+                // todo: close any http connection by default
+                native.server.group.listen(this.serverGroup, options.port);
             } else {
-                this.httpServer.listen(options.port, callback);
+                if (options.host) {
+                    this.httpServer.listen(options.port, options.host, callback);
+                } else {
+                    this.httpServer.listen(options.port, callback);
+                }
             }
         }
+    }
+
+    onHttpRequest(reqCb) {
+        native.server.group.onHttpRequest(this.serverGroup, (external, verb, url, data, remainingBytes) => {
+            reqCb(new HttpSocket(external), {verb: verb, url: url, getHeader: native.server.getHeader, data: data, remainingBytes: remainingBytes});
+        });
     }
 
     handleUpgrade(request, socket, upgradeHead, callback) {
@@ -491,4 +531,6 @@ WebSocketClient.OPEN = 1;
 WebSocketClient.CLOSED = 0;
 WebSocketClient.Server = Server;
 WebSocketClient.native = native;
+WebSocketClient.HTTP_GET = 0;
+WebSocketClient.HTTP_POST = 1;
 module.exports = WebSocketClient;

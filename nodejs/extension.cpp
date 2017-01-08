@@ -20,6 +20,8 @@ void Main(Local<Object> exports, Local<Value> unused, Local<Context> context) {
     env->SetMethod(exports, "transfer", transfer);
     env->SetMethod(exports, "upgrade", upgrade);
     env->SetMethod(exports, "connect", connect);
+    env->SetMethod(exports, "setNoop", setNoop);
+    registerCheck(isolate);
 }
 
 }

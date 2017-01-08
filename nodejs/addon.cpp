@@ -15,6 +15,8 @@ void Main(Local<Object> exports) {
     NODE_SET_METHOD(exports, "transfer", transfer);
     NODE_SET_METHOD(exports, "upgrade", upgrade);
     NODE_SET_METHOD(exports, "connect", connect);
+    NODE_SET_METHOD(exports, "setNoop", setNoop);
+    registerCheck(isolate);
 }
 
 NODE_MODULE(uws, Main)

@@ -9,6 +9,20 @@ using namespace std;
 using namespace v8;
 
 uWS::Hub hub(0, true);
+uv_check_t check;
+Persistent<Function> noop;
+uWS::HTTPRequest currentReq;
+
+void registerCheck(Isolate *isolate) {
+    uv_check_init(hub.getLoop(), &check);
+    check.data = isolate;
+    uv_check_start(&check, [](uv_check_t *check) {
+        Isolate *isolate = (Isolate *) check->data;
+        HandleScope hs(isolate);
+        node::MakeCallback(isolate, isolate->GetCurrentContext()->Global(), Local<Function>::New(isolate, noop), 0, nullptr);
+    });
+    uv_unref((uv_handle_t *) &check);
+}
 
 class NativeString {
     char *data;
@@ -54,28 +68,10 @@ public:
 };
 
 struct GroupData {
-    Persistent<Function> *connectionHandler, *messageHandler,
-                         *disconnectionHandler, *pingHandler,
-                         *pongHandler, *errorHandler;
+    Persistent<Function> connectionHandler, messageHandler,
+                         disconnectionHandler, pingHandler,
+                         pongHandler, errorHandler, httpRequestHandler;
     int size = 0;
-
-    GroupData() {
-        connectionHandler = new Persistent<Function>;
-        messageHandler = new Persistent<Function>;
-        disconnectionHandler = new Persistent<Function>;
-        pingHandler = new Persistent<Function>;
-        pongHandler = new Persistent<Function>;
-        errorHandler = new Persistent<Function>;
-    }
-
-    ~GroupData() {
-        delete connectionHandler;
-        delete messageHandler;
-        delete disconnectionHandler;
-        delete pingHandler;
-        delete pongHandler;
-        delete errorHandler;
-    }
 };
 
 template <bool isServer>
@@ -243,9 +239,9 @@ void onConnection(const FunctionCallbackInfo<Value> &args) {
     GroupData *groupData = (GroupData *) group->getUserData();
 
     Isolate *isolate = args.GetIsolate();
-    Persistent<Function> *connectionCallback = groupData->connectionHandler;
+    Persistent<Function> *connectionCallback = &groupData->connectionHandler;
     connectionCallback->Reset(isolate, Local<Function>::Cast(args[1]));
-    group->onConnection([isolate, connectionCallback, groupData](uWS::WebSocket<isServer> webSocket, uWS::UpgradeInfo ui) {
+    group->onConnection([isolate, connectionCallback, groupData](uWS::WebSocket<isServer> webSocket, uWS::HTTPRequest req) {
         groupData->size++;
         HandleScope hs(isolate);
         Local<Value> argv[] = {wrapSocket(webSocket, isolate)};
@@ -259,13 +255,13 @@ void onMessage(const FunctionCallbackInfo<Value> &args) {
     GroupData *groupData = (GroupData *) group->getUserData();
 
     Isolate *isolate = args.GetIsolate();
-    Persistent<Function> *messageCallback = groupData->messageHandler;
+    Persistent<Function> *messageCallback = &groupData->messageHandler;
     messageCallback->Reset(isolate, Local<Function>::Cast(args[1]));
     group->onMessage([isolate, messageCallback](uWS::WebSocket<isServer> webSocket, const char *message, size_t length, uWS::OpCode opCode) {
         HandleScope hs(isolate);
         Local<Value> argv[] = {wrapMessage(message, length, opCode, isolate),
                                getDataV8(webSocket, isolate)};
-        node::MakeCallback(isolate, isolate->GetCurrentContext()->Global(), Local<Function>::New(isolate, *messageCallback), 2, argv);
+        Local<Function>::New(isolate, *messageCallback)->Call(isolate->GetCurrentContext()->Global(), 2, argv);
     });
 }
 
@@ -275,7 +271,7 @@ void onPing(const FunctionCallbackInfo<Value> &args) {
     GroupData *groupData = (GroupData *) group->getUserData();
 
     Isolate *isolate = args.GetIsolate();
-    Persistent<Function> *pingCallback = groupData->pingHandler;
+    Persistent<Function> *pingCallback = &groupData->pingHandler;
     pingCallback->Reset(isolate, Local<Function>::Cast(args[1]));
     group->onPing([isolate, pingCallback](uWS::WebSocket<isServer> webSocket, const char *message, size_t length) {
         HandleScope hs(isolate);
@@ -291,7 +287,7 @@ void onPong(const FunctionCallbackInfo<Value> &args) {
     GroupData *groupData = (GroupData *) group->getUserData();
 
     Isolate *isolate = args.GetIsolate();
-    Persistent<Function> *pongCallback = groupData->pongHandler;
+    Persistent<Function> *pongCallback = &groupData->pongHandler;
     pongCallback->Reset(isolate, Local<Function>::Cast(args[1]));
     group->onPong([isolate, pongCallback](uWS::WebSocket<isServer> webSocket, const char *message, size_t length) {
         HandleScope hs(isolate);
@@ -307,7 +303,7 @@ void onDisconnection(const FunctionCallbackInfo<Value> &args) {
     GroupData *groupData = (GroupData *) group->getUserData();
 
     Isolate *isolate = args.GetIsolate();
-    Persistent<Function> *disconnectionCallback = groupData->disconnectionHandler;
+    Persistent<Function> *disconnectionCallback = &groupData->disconnectionHandler;
     disconnectionCallback->Reset(isolate, Local<Function>::Cast(args[1]));
 
     group->onDisconnection([isolate, disconnectionCallback, groupData](uWS::WebSocket<isServer> webSocket, int code, char *message, size_t length) {
@@ -326,7 +322,7 @@ void onError(const FunctionCallbackInfo<Value> &args) {
     GroupData *groupData = (GroupData *) group->getUserData();
 
     Isolate *isolate = args.GetIsolate();
-    Persistent<Function> *errorCallback = groupData->errorHandler;
+    Persistent<Function> *errorCallback = &groupData->errorHandler;
     errorCallback->Reset(isolate, Local<Function>::Cast(args[1]));
 
     group->onError([isolate, errorCallback](void *user) {
@@ -413,6 +409,47 @@ void startAutoPing(const FunctionCallbackInfo<Value> &args) {
     group->startAutoPing(args[1]->IntegerValue(), std::string(nativeString.getData(), nativeString.getLength()));
 }
 
+void setNoop(const FunctionCallbackInfo<Value> &args) {
+    noop.Reset(args.GetIsolate(), Local<Function>::Cast(args[0]));
+}
+
+void listen(const FunctionCallbackInfo<Value> &args) {
+    uWS::Group<uWS::SERVER> *group = (uWS::Group<uWS::SERVER> *) args[0].As<External>()->Value();
+    hub.listen(args[1]->IntegerValue(), nullptr, 0, group);
+}
+
+void onHttpRequest(const FunctionCallbackInfo<Value> &args) {
+    uWS::Group<uWS::SERVER> *group = (uWS::Group<uWS::SERVER> *) args[0].As<External>()->Value();
+    GroupData *groupData = (GroupData *) group->getUserData();
+
+    Isolate *isolate = args.GetIsolate();
+    Persistent<Function> *httpRequestCallback = &groupData->httpRequestHandler;
+    httpRequestCallback->Reset(isolate, Local<Function>::Cast(args[1]));
+    group->onHttpRequest([isolate, httpRequestCallback](uWS::HTTPSocket<uWS::SERVER> s, uWS::HTTPRequest req, char *data, size_t length, size_t remainingBytes) {
+        currentReq = req;
+        HandleScope hs(isolate);
+        Local<Value> argv[] = {External::New(isolate, s.getPollHandle()),
+                               Integer::New(isolate, req.getVerb()),
+                               String::NewFromUtf8(isolate, req.getUrl().value, String::kNormalString, req.getUrl().valueLength),
+                               ArrayBuffer::New(isolate, (char *) data, length),
+                               Integer::New(isolate, remainingBytes)};
+        Local<Function>::New(isolate, *httpRequestCallback)->Call(isolate->GetCurrentContext()->Global(), 4, argv);
+    });
+}
+
+void respond(const FunctionCallbackInfo<Value> &args) {
+    NativeString nativeString(args[1]);
+    uWS::HTTPSocket<uWS::SERVER>((uv_poll_t *) args[0].As<External>()->Value()).respond(nativeString.getData(), nativeString.getLength(), uWS::ContentType::TEXT_HTML);
+}
+
+void getHeader(const FunctionCallbackInfo<Value> &args) {
+    NativeString nativeString(args[0]);
+    uWS::Header header = currentReq.getHeader(nativeString.getData(), nativeString.getLength());
+    if (header) {
+        args.GetReturnValue().Set(String::NewFromUtf8(args.GetIsolate(), header.value, String::kNormalString, header.valueLength));
+    }
+}
+
 template <bool isServer>
 struct Namespace {
     Local<Object> object;
@@ -436,6 +473,11 @@ struct Namespace {
             NODE_SET_METHOD(group, "forEach", forEach);
             NODE_SET_METHOD(group, "getSize", getSize);
             NODE_SET_METHOD(group, "startAutoPing", startAutoPing);
+
+            NODE_SET_METHOD(group, "listen", listen);
+            NODE_SET_METHOD(group, "onHttpRequest", onHttpRequest);
+            NODE_SET_METHOD(object, "respond", respond);
+            NODE_SET_METHOD(object, "getHeader", getHeader);
         }
 
         NODE_SET_METHOD(group, "onPing", onPing<isServer>);
