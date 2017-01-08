@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.0)
 set(CMAKE_BUILD_TYPE Release)
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 14)
 project (µWebSockets)
 
 option(BUILD_SHARED_LIBS "Build shared libraries." ON)
@@ -33,9 +33,9 @@ target_link_libraries (uWS LINK_PUBLIC ${OPENSSL_CRYPTO_LIBRARY})
 target_link_libraries (uWS LINK_PUBLIC ${ZLIB_LIBRARY})
 
 if (UNIX)
-target_link_libraries (uWS LINK_PUBLIC pthread)
+target_link_libraries (uWS LINK_PUBLIC pthread stdc++)
 install (TARGETS uWS DESTINATION /usr/lib64)
 install (FILES src/Extensions.h src/WebSocketProtocol.h src/Networking.h src/WebSocket.h src/Hub.h src/Group.h src/Node.h src/Socket.h src/HTTPSocket.h src/uWS.h DESTINATION /usr/include/uWS)
 endif (UNIX)
 
-add_subdirectory(examples)
+#add_subdirectory(examples)
