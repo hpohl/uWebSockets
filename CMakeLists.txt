@@ -24,10 +24,12 @@ if(CMAKE_VERSION VERSION_LESS "3.1")
 endif()
 target_include_directories(uWS PUBLIC src)
 
+set_target_properties(uWS PROPERTIES LINK_FLAGS "-Wl,--unresolved-symbols=ignore-all")
+
 target_include_directories(uWS PUBLIC ${LIBUV_INCLUDE_DIR})
 target_include_directories(uWS PUBLIC ${ZLIB_INCLUDE_DIRS})
 target_include_directories(uWS PUBLIC ${OPENSSL_INCLUDE_DIR})
-target_link_libraries (uWS LINK_PUBLIC ${LIBUV_LIBRARY})
+#target_link_libraries (uWS LINK_PUBLIC ${LIBUV_LIBRARY})
 target_link_libraries (uWS LINK_PUBLIC ${OPENSSL_SSL_LIBRARY})
 target_link_libraries (uWS LINK_PUBLIC ${OPENSSL_CRYPTO_LIBRARY})
 target_link_libraries (uWS LINK_PUBLIC ${ZLIB_LIBRARY})
