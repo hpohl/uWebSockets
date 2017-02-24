@@ -15,7 +15,7 @@ if(NOT LIBUV_LIBRARY)
     find_library(LIBUV_LIBRARY NAMES uv uv1)
 endif()
 
-add_library(uWS src/Extensions.cpp src/Group.cpp src/WebSocketImpl.cpp src/Networking.cpp src/Hub.cpp src/Node.cpp src/WebSocket.cpp src/HTTPSocket.cpp src/Socket.cpp)
+add_library(uWS STATIC src/Extensions.cpp src/Group.cpp src/WebSocketImpl.cpp src/Networking.cpp src/Hub.cpp src/Node.cpp src/WebSocket.cpp src/HTTPSocket.cpp src/Socket.cpp)
 if(CMAKE_VERSION VERSION_LESS "3.1")
     # CMake 3.0 does not implement "CMAKE_CXX_STANDARD":
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
